@@ -1,5 +1,3 @@
-import type { FastifyReply, FastifyRequest } from 'fastify';
-
 export interface AuditContext {
   ipHashPrefix?: string;
   globalRequestCount?: number;
@@ -43,6 +41,3 @@ export interface QuotaStore {
   getGlobalRequestCount(): Promise<number>;
   close(): Promise<void>;
 }
-
-export type ProxyRequest = FastifyRequest & { audit: AuditContext | null };
-export type ProxyReply = FastifyReply;

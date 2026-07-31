@@ -11,8 +11,6 @@ export interface Config {
   maxConcurrency: number;
   leaseTtlSeconds: number;
   databaseUrl: string;
-  port: number;
-  host: string;
 }
 
 function required(name: string): string {
@@ -62,9 +60,6 @@ function disableAt(): Date | null {
 }
 
 export function loadConfig(): Config {
-  const port = integer('PORT', 3000, 1);
-  if (port > 65535) throw new Error('PORT must be <= 65535.');
-
   return {
     upstreamUrl: url('UPSTREAM_URL'),
     upstreamApiKey: required('UPSTREAM_API_KEY'),
@@ -76,9 +71,7 @@ export function loadConfig(): Config {
     globalRequestLimit: integer('GLOBAL_REQUEST_LIMIT', 150, 1),
     disableAt: disableAt(),
     maxConcurrency: integer('MAX_CONCURRENCY', 3, 1),
-    leaseTtlSeconds: integer('LEASE_TTL_SECONDS', 900, 1),
+    leaseTtlSeconds: integer('LEASE_TTL_SECONDS', 360, 1),
     databaseUrl: required('DATABASE_URL'),
-    port,
-    host: process.env.HOST?.trim() || '0.0.0.0',
   };
 }
