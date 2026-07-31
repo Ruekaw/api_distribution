@@ -1,0 +1,29 @@
+{
+  "name": "dify-openai-chat-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small PostgreSQL-backed OpenAI Chat Completions reverse proxy for Replit Autoscale.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "migrate": "TMPDIR=/tmp tsx scripts/migrate.ts",
+    "prestart": "node dist/scripts/migrate.js",
+    "start": "node dist/src/server.js",
+    "dev": "TMPDIR=/tmp tsx src/server.ts",
+    "test": "TMPDIR=/tmp tsx --test tests/*.test.ts",
+    "check": "npm run build && npm test"
+  },
+  "dependencies": {
+    "fastify": "^5.4.0",
+    "ipaddr.js": "^2.2.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
