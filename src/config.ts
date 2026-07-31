@@ -10,7 +10,6 @@ export interface Config {
   disableAt: Date | null;
   maxConcurrency: number;
   leaseTtlSeconds: number;
-  databaseUrl: string;
 }
 
 function required(name: string): string {
@@ -72,6 +71,5 @@ export function loadConfig(): Config {
     disableAt: disableAt(),
     maxConcurrency: integer('MAX_CONCURRENCY', 3, 1),
     leaseTtlSeconds: integer('LEASE_TTL_SECONDS', 360, 1),
-    databaseUrl: required('DATABASE_URL'),
   };
 }

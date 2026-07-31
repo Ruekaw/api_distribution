@@ -2,21 +2,20 @@
   "name": "dify-openai-chat-proxy",
   "version": "1.0.0",
   "private": true,
-  "description": "A small PostgreSQL-backed OpenAI Chat Completions reverse proxy for Replit Autoscale.",
+  "description": "Aurora PostgreSQL-backed OpenAI Chat Completions reverse proxy for Vercel.",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "migrate": "TMPDIR=/tmp tsx scripts/migrate.ts",
-    "prestart": "node dist/scripts/migrate.js",
-    "start": "node dist/src/server.js",
-    "dev": "TMPDIR=/tmp tsx src/server.ts",
-    "test": "TMPDIR=/tmp tsx --test tests/*.test.ts",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "migrate": "tsx scripts/migrate.ts",
+    "test": "tsx --test tests/*.test.ts",
     "check": "npm run build && npm test"
   },
   "dependencies": {
-    "fastify": "^5.4.0",
+    "@aws-sdk/rds-signer": "^3.1100.0",
+    "@vercel/functions": "^3.7.6",
+    "@vercel/node": "^5.9.3",
     "ipaddr.js": "^2.2.0",
     "pg": "^8.13.1"
   },

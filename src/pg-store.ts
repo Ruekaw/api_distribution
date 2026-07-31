@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { Pool, type PoolClient } from 'pg';
+import { type PoolClient } from 'pg';
+import { pool } from './db';
 import type {
   QuotaStore,
   Reservation,
@@ -20,25 +21,13 @@ class ReservationRejected extends Error {
 }
 
 export class PgQuotaStore implements QuotaStore {
-  private readonly pool: Pool;
-  private readonly cleanupTimer: NodeJS.Timeout;
-
-  constructor(databaseUrl: string) {
-    this.pool = new Pool({
-      connectionString: databaseUrl,
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000,
-      application_name: 'dify-openai-chat-proxy',
-    });
-    this.cleanupTimer = setInterval(() => {
-      void this.cleanupOldData();
-    }, 6 * 60 * 60 * 1000);
-    this.cleanupTimer.unref();
+  constructor() {
+    // Pool is the module-level Aurora IAM pool from ./db.
+    // No persistent background timer — serverless instances are ephemeral.
   }
 
   async reserve(input: ReservationInput): Promise<Reservation | ReservationFailure> {
-    const client = await this.pool.connect();
+    const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
@@ -150,36 +139,18 @@ export class PgQuotaStore implements QuotaStore {
   }
 
   async releaseLease(leaseId: string): Promise<void> {
-    await this.pool.query('DELETE FROM concurrency_leases WHERE lease_id = $1::uuid', [leaseId]);
+    await pool.query('DELETE FROM concurrency_leases WHERE lease_id = $1::uuid', [leaseId]);
   }
 
   async getGlobalRequestCount(): Promise<number> {
-    const result = await this.pool.query<{ request_count: number }>(
+    const result = await pool.query<{ request_count: number }>(
       "SELECT request_count FROM global_usage WHERE scope = 'lifetime'",
     );
     return result.rows[0]?.request_count ?? 0;
   }
 
-  async close(): Promise<void> {
-    clearInterval(this.cleanupTimer);
-    await this.pool.end();
-  }
-
-  private async cleanupOldData(): Promise<void> {
-    let client: PoolClient | undefined;
-    try {
-      client = await this.pool.connect();
-      await client.query('BEGIN');
-      await client.query("DELETE FROM ip_minute_usage WHERE minute_bucket < NOW() - INTERVAL '48 hours'");
-      await client.query("DELETE FROM hourly_ip_admissions WHERE hour_bucket < NOW() - INTERVAL '48 hours'");
-      await client.query('COMMIT');
-    } catch {
-      await client?.query('ROLLBACK').catch(() => undefined);
-      // Cleanup is best effort and must never break a model request.
-    } finally {
-      client?.release();
-    }
-  }
+  // No-op in serverless: the module-level pool is managed by @vercel/functions.
+  async close(): Promise<void> {}
 }
 
 function secondsUntilNextMinute(now: Date): number {

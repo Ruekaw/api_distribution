@@ -353,7 +353,7 @@ test('27. upstream network/timeout error becomes a safe 502 and releases lease',
   assert.equal(store.leases.size, 0);
 });
 
-test('28. request body over 8 MiB is rejected before quota', async (t) => {
+test('28. request body over 4 MiB is rejected before quota', async (t) => {
   const { app, store } = appFixture();
   t.after(() => app.close());
   const payload = JSON.stringify({ messages: [{ role: 'user', content: 'x'.repeat(MAX_BODY_BYTES) }] });

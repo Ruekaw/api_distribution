@@ -1,5 +1,3 @@
-import type { FastifyReply } from 'fastify';
-
 export type ErrorCategory =
   | 'proxy_disabled'
   | 'unauthorized'
@@ -15,21 +13,36 @@ export type ErrorCategory =
   | 'upstream_http_error'
   | 'client_aborted';
 
-export function sendOpenAiError(
-  reply: FastifyReply,
+const COMMON_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cache-Control': 'no-store',
+} as const;
+
+export function makeOpenAiError(
   statusCode: number,
   message: string,
   type: string,
   code: string,
   retryAfterSeconds?: number,
-): void {
+): Response {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json; charset=utf-8',
+    ...COMMON_HEADERS,
+  };
   if (retryAfterSeconds !== undefined) {
-    reply.header('Retry-After', String(Math.max(1, Math.ceil(retryAfterSeconds))));
+    headers['Retry-After'] = String(Math.max(1, Math.ceil(retryAfterSeconds)));
   }
-  reply
-    .code(statusCode)
-    .type('application/json; charset=utf-8')
-    .send({ error: { message, type, code } });
+  return new Response(JSON.stringify({ error: { message, type, code } }), {
+    status: statusCode,
+    headers,
+  });
+}
+
+export function addCommonHeaders(headers: Headers): void {
+  for (const [k, v] of Object.entries(COMMON_HEADERS)) {
+    headers.set(k, v);
+  }
 }
 
 export function secondsUntilNextMinute(now: Date): number {

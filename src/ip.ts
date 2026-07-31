@@ -1,6 +1,10 @@
 import { createHmac } from 'node:crypto';
 import ipaddr from 'ipaddr.js';
-import type { FastifyRequest } from 'fastify';
+
+/** A minimal headers interface compatible with both Web API Headers and plain objects. */
+export type HeadersLike = {
+  get(name: string): string | null;
+};
 
 function parseAndNormalize(value: string): string | null {
   const trimmed = value.trim();
@@ -16,7 +20,7 @@ function parseAndNormalize(value: string): string | null {
   }
 }
 
-function firstValidForwardedIp(header: string | undefined): string | null {
+function firstValidForwardedIp(header: string | null | undefined): string | null {
   if (!header) return null;
   for (const candidate of header.split(',')) {
     const normalized = parseAndNormalize(candidate);
@@ -25,25 +29,28 @@ function firstValidForwardedIp(header: string | undefined): string | null {
   return null;
 }
 
-export function extractClientIp(request: FastifyRequest): string | null {
-  const forwardedHeader = request.headers['x-forwarded-for'];
-  const forwarded = firstValidForwardedIp(
-    Array.isArray(forwardedHeader) ? forwardedHeader.join(',') : forwardedHeader,
-  );
+/**
+ * Extract and normalise the real client IP from request headers.
+ * Priority (Vercel deployment order):
+ *   1. x-vercel-forwarded-for  (set by Vercel edge, single trusted IP)
+ *   2. x-forwarded-for         (first address only)
+ *   3. x-real-ip
+ */
+export function extractClientIp(headers: HeadersLike): string | null {
+  const vercelForwarded = firstValidForwardedIp(headers.get('x-vercel-forwarded-for'));
+  if (vercelForwarded) return vercelForwarded;
+
+  const forwarded = firstValidForwardedIp(headers.get('x-forwarded-for'));
   if (forwarded) return forwarded;
 
-  const real = request.headers['x-real-ip'];
-  const realIp = parseAndNormalize(Array.isArray(real) ? real[0] ?? '' : real ?? '');
-  if (realIp) return realIp;
-
-  return parseAndNormalize(request.ip);
+  return parseAndNormalize(headers.get('x-real-ip') ?? '');
 }
 
 export function hashClientIp(ip: string, secret: string): string {
   return createHmac('sha256', secret).update(ip, 'utf8').digest('hex');
 }
 
-export function hashClientIpFromRequest(request: FastifyRequest, secret: string): string | null {
-  const ip = extractClientIp(request);
+export function hashClientIpFromHeaders(headers: HeadersLike, secret: string): string | null {
+  const ip = extractClientIp(headers);
   return ip ? hashClientIp(ip, secret) : null;
 }

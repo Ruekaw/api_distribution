@@ -18,10 +18,7 @@ export const testConfig: Config = {
   globalRequestLimit: 150,
   disableAt: null,
   maxConcurrency: 3,
-  leaseTtlSeconds: 900,
-  databaseUrl: 'postgresql://unused.invalid/test',
-  port: 3000,
-  host: '127.0.0.1',
+  leaseTtlSeconds: 360,
 };
 
 interface Lease {
@@ -108,6 +105,12 @@ export function jsonFetch(
     });
   };
   return { calls, fetch: implementation as typeof fetch };
+}
+
+/** Cast the return of InjectResponse.json() to a typed value in tests. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function asJson(value: unknown): any {
+  return value;
 }
 
 export function authHeaders(ip = '203.0.113.10'): Record<string, string> {

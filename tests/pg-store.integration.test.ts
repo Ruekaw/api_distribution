@@ -1,3 +1,11 @@
+/**
+ * Integration tests for PgQuotaStore against a real Aurora / PostgreSQL database.
+ * These are skipped unless TEST_DATABASE_URL is set (Aurora IAM is handled by
+ * the module-level pool in src/db.ts; for local testing, set PGHOST/PGUSER etc.).
+ *
+ * Run manually:
+ *   TEST_DATABASE_URL=postgresql://... npm run test -- tests/pg-store.integration.test.ts
+ */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -5,10 +13,11 @@ import test from 'node:test';
 import { Pool } from 'pg';
 import { PgQuotaStore } from '../src/pg-store';
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const skip = !testDatabaseUrl;
 
 async function resetDatabase(): Promise<void> {
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: testDatabaseUrl });
   try {
     const migration = await readFile(path.resolve(process.cwd(), 'migrations/001_initial.sql'), 'utf8');
     await pool.query(migration);
@@ -27,19 +36,21 @@ function input(ipHash: string, overrides: Record<string, number> = {}) {
     hourlyUniqueIpLimit: overrides.hourlyUniqueIpLimit ?? 10,
     globalRequestLimit: overrides.globalRequestLimit ?? 100,
     maxConcurrency: overrides.maxConcurrency ?? 100,
-    leaseTtlSeconds: overrides.leaseTtlSeconds ?? 900,
+    leaseTtlSeconds: overrides.leaseTtlSeconds ?? 360,
   };
 }
 
-test('PostgreSQL: two store instances cannot both win the tenth hourly slot', { skip: !databaseUrl }, async () => {
+test('PostgreSQL: two store instances cannot both win the tenth hourly slot', { skip }, async () => {
   await resetDatabase();
-  const firstStore = new PgQuotaStore(databaseUrl!);
-  const secondStore = new PgQuotaStore(databaseUrl!);
+  // PgQuotaStore now uses the shared module-level Aurora pool; both instances
+  // share the same connection pool in-process.
+  const firstStore = new PgQuotaStore();
+  const secondStore = new PgQuotaStore();
   try {
     for (let i = 1; i <= 9; i += 1) {
       const reservation = await firstStore.reserve(input(String(i).padStart(64, '0')));
       assert.ok('leaseId' in reservation);
-      await firstStore.releaseLease(reservation.leaseId);
+      await firstStore.releaseLease((reservation as { leaseId: string }).leaseId);
     }
     const contenders = await Promise.all([
       firstStore.reserve(input('a'.repeat(64))),
@@ -53,10 +64,10 @@ test('PostgreSQL: two store instances cannot both win the tenth hourly slot', { 
   }
 });
 
-test('PostgreSQL: two store instances cannot overrun the last global slot', { skip: !databaseUrl }, async () => {
+test('PostgreSQL: two store instances cannot overrun the last global slot', { skip }, async () => {
   await resetDatabase();
-  const firstStore = new PgQuotaStore(databaseUrl!);
-  const secondStore = new PgQuotaStore(databaseUrl!);
+  const firstStore = new PgQuotaStore();
+  const secondStore = new PgQuotaStore();
   try {
     const contenders = await Promise.all([
       firstStore.reserve(input('a'.repeat(64), { globalRequestLimit: 1 })),
@@ -71,15 +82,15 @@ test('PostgreSQL: two store instances cannot overrun the last global slot', { sk
   }
 });
 
-test('PostgreSQL: an expired lease is reclaimed before the concurrency check', { skip: !databaseUrl }, async () => {
+test('PostgreSQL: an expired lease is reclaimed before the concurrency check', { skip }, async () => {
   await resetDatabase();
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: testDatabaseUrl });
   await pool.query(`
     INSERT INTO concurrency_leases (lease_id, acquired_at, expires_at)
     VALUES ('00000000-0000-4000-8000-000000000001', NOW() - INTERVAL '2 minutes', NOW() - INTERVAL '1 minute')
   `);
   await pool.end();
-  const store = new PgQuotaStore(databaseUrl!);
+  const store = new PgQuotaStore();
   try {
     const reservation = await store.reserve(input('a'.repeat(64), { maxConcurrency: 1 }));
     assert.ok('leaseId' in reservation);

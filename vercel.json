@@ -1,0 +1,23 @@
+{
+  "functions": {
+    "api/v1/chat/completions.ts": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 300
+    },
+    "api/health.ts": {
+      "runtime": "nodejs22.x"
+    },
+    "api/v1/models.ts": {
+      "runtime": "nodejs22.x"
+    },
+    "api/index.ts": {
+      "runtime": "nodejs22.x"
+    }
+  },
+  "rewrites": [
+    { "source": "/",                     "destination": "/api/index" },
+    { "source": "/health",               "destination": "/api/health" },
+    { "source": "/v1/models",            "destination": "/api/v1/models" },
+    { "source": "/v1/chat/completions",  "destination": "/api/v1/chat/completions" }
+  ]
+}
