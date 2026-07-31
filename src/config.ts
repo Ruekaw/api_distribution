@@ -1,84 +1,158 @@
-export interface Config {
-  upstreamUrl: string;
-  upstreamApiKey: string;
-  groupApiKey: string;
-  ipHmacSecret: string;
-  modelName: string;
-  perIpRpmLimit: number;
-  hourlyUniqueIpLimit: number;
-  globalRequestLimit: number;
-  disableAt: Date | null;
-  maxConcurrency: number;
-  leaseTtlSeconds: number;
-  databaseUrl: string;
-  port: number;
-  host: string;
-}
+import type { ProxyConfig } from "./types";
 
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`${name} is required.`);
+const ISO_8601_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|([+-])(\d{2}):(\d{2}))$/;
+
+class ConfigValidationError extends Error {}
+
+function required(env: Env, name: keyof Env): string {
+  const value = env[name];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ConfigValidationError("invalid_configuration");
   }
-  return value;
+  return value.trim();
 }
 
-function integer(name: string, fallback: number, minimum: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw.trim() === '') return fallback;
+function integer(
+  env: Env,
+  name: keyof Env,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  if (typeof raw !== "string" || !/^\d+$/.test(raw.trim())) {
+    throw new ConfigValidationError("invalid_configuration");
+  }
   const value = Number(raw);
-  if (!Number.isInteger(value) || value < minimum) {
-    throw new Error(`${name} must be an integer >= ${minimum}.`);
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new ConfigValidationError("invalid_configuration");
   }
   return value;
 }
 
-function url(name: string): string {
-  const value = required(name);
+function upstreamUrl(env: Env): string {
+  const raw = required(env, "UPSTREAM_URL");
   let parsed: URL;
   try {
-    parsed = new URL(value);
+    parsed = new URL(raw);
   } catch {
-    throw new Error(`${name} must be an absolute URL.`);
+    throw new ConfigValidationError("invalid_configuration");
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error(`${name} must use http or https.`);
+  if (parsed.protocol !== "https:") {
+    throw new ConfigValidationError("invalid_configuration");
   }
-  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
-  if (name === 'UPSTREAM_URL' && !normalizedPath.endsWith('/v1/chat/completions')) {
-    throw new Error('UPSTREAM_URL must be the complete /v1/chat/completions URL.');
+  const path = parsed.pathname.replace(/\/+$/, "");
+  if (!path.endsWith("/v1/chat/completions")) {
+    throw new ConfigValidationError("invalid_configuration");
   }
   return parsed.toString();
 }
 
-function disableAt(): Date | null {
-  const raw = process.env.DISABLE_AT?.trim();
+function disableAt(env: Env): number | null {
+  const raw = env.DISABLE_AT?.trim();
   if (!raw) return null;
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) {
-    throw new Error('DISABLE_AT must be a valid ISO 8601 timestamp.');
+  const match = ISO_8601_PATTERN.exec(raw);
+  if (match === null) {
+    throw new ConfigValidationError("invalid_configuration");
   }
-  return date;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = match[10] === undefined ? 0 : Number(match[10]);
+  const offsetMinute = match[11] === undefined ? 0 : Number(match[11]);
+  const daysInMonth =
+    month >= 1 && month <= 12
+      ? new Date(Date.UTC(year, month, 0)).getUTCDate()
+      : 0;
+  if (
+    day < 1 ||
+    day > daysInMonth ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59 ||
+    offsetHour > 14 ||
+    offsetMinute > 59 ||
+    (offsetHour === 14 && offsetMinute !== 0)
+  ) {
+    throw new ConfigValidationError("invalid_configuration");
+  }
+  const timestamp = Date.parse(raw);
+  if (!Number.isFinite(timestamp)) {
+    throw new ConfigValidationError("invalid_configuration");
+  }
+  return timestamp;
 }
 
-export function loadConfig(): Config {
-  const port = integer('PORT', 3000, 1);
-  if (port > 65535) throw new Error('PORT must be <= 65535.');
+export function getConfig(env: Env): ProxyConfig {
+  const leaseTtlSeconds = integer(env, "LEASE_TTL_SECONDS", 180, 2, 86_400);
+  const leaseHeartbeatSeconds = integer(
+    env,
+    "LEASE_HEARTBEAT_SECONDS",
+    60,
+    1,
+    3_600,
+  );
+  if (leaseHeartbeatSeconds >= leaseTtlSeconds) {
+    throw new ConfigValidationError("invalid_configuration");
+  }
+
+  const quotaScope = required(env, "QUOTA_SCOPE");
+  if (quotaScope.length > 128) {
+    throw new ConfigValidationError("invalid_configuration");
+  }
+  const modelName = required(env, "MODEL_NAME");
+  if (modelName.length > 128) {
+    throw new ConfigValidationError("invalid_configuration");
+  }
 
   return {
-    upstreamUrl: url('UPSTREAM_URL'),
-    upstreamApiKey: required('UPSTREAM_API_KEY'),
-    groupApiKey: required('GROUP_API_KEY'),
-    ipHmacSecret: required('IP_HMAC_SECRET'),
-    modelName: process.env.MODEL_NAME?.trim() || 'claude-opus-4.6',
-    perIpRpmLimit: integer('PER_IP_RPM_LIMIT', 10, 1),
-    hourlyUniqueIpLimit: integer('HOURLY_UNIQUE_IP_LIMIT', 10, 1),
-    globalRequestLimit: integer('GLOBAL_REQUEST_LIMIT', 150, 1),
-    disableAt: disableAt(),
-    maxConcurrency: integer('MAX_CONCURRENCY', 3, 1),
-    leaseTtlSeconds: integer('LEASE_TTL_SECONDS', 900, 1),
-    databaseUrl: required('DATABASE_URL'),
-    port,
-    host: process.env.HOST?.trim() || '0.0.0.0',
+    upstreamUrl: upstreamUrl(env),
+    upstreamApiKey: required(env, "UPSTREAM_API_KEY"),
+    groupApiKey: required(env, "GROUP_API_KEY"),
+    ipHmacSecret: required(env, "IP_HMAC_SECRET"),
+    modelName,
+    perIpRpmLimit: integer(env, "PER_IP_RPM_LIMIT", 10, 1, 10_000),
+    hourlyUniqueIpLimit: integer(
+      env,
+      "HOURLY_UNIQUE_IP_LIMIT",
+      10,
+      1,
+      10_000,
+    ),
+    globalRequestLimit: integer(
+      env,
+      "GLOBAL_REQUEST_LIMIT",
+      150,
+      1,
+      10_000_000,
+    ),
+    maxConcurrency: integer(env, "MAX_CONCURRENCY", 3, 1, 1_000),
+    leaseTtlSeconds,
+    leaseHeartbeatSeconds,
+    maxOutputTokens: integer(
+      env,
+      "MAX_OUTPUT_TOKENS",
+      16_384,
+      1,
+      1_000_000,
+    ),
+    maxBodyBytes: integer(
+      env,
+      "MAX_BODY_BYTES",
+      4 * 1024 * 1024,
+      1_024,
+      16 * 1024 * 1024,
+    ),
+    disableAt: disableAt(env),
+    quotaScope,
   };
+}
+
+export function isConfigValidationError(error: unknown): boolean {
+  return error instanceof ConfigValidationError;
 }

@@ -2,28 +2,25 @@
   "name": "dify-openai-chat-proxy",
   "version": "1.0.0",
   "private": true,
-  "description": "A small PostgreSQL-backed OpenAI Chat Completions reverse proxy for Replit Autoscale.",
-  "engines": {
-    "node": ">=22"
-  },
+  "type": "module",
+  "description": "Cloudflare Worker OpenAI Chat Completions reverse proxy with a SQLite Durable Object limiter.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "migrate": "TMPDIR=/tmp tsx scripts/migrate.ts",
-    "prestart": "node dist/scripts/migrate.js",
-    "start": "node dist/src/server.js",
-    "dev": "TMPDIR=/tmp tsx src/server.ts",
-    "test": "TMPDIR=/tmp tsx --test tests/*.test.ts",
-    "check": "npm run build && npm test"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "cf-typegen": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "fastify": "^5.4.0",
-    "ipaddr.js": "^2.2.0",
-    "pg": "^8.13.1"
+    "ipaddr.js": "^2.4.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@types/pg": "^8.11.10",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "@cloudflare/vitest-pool-workers": "^0.19.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.116.0"
   }
 }

@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "api-distribution",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-31",
+  "compatibility_flags": [
+    "enable_request_signal"
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PROXY_LIMITER",
+        "class_name": "ProxyLimiter"
+      }
+    ]
+  },
+  "exports": {
+    "ProxyLimiter": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "vars": {
+    "MODEL_NAME": "claude-opus-4.6",
+    "PER_IP_RPM_LIMIT": "10",
+    "HOURLY_UNIQUE_IP_LIMIT": "10",
+    "GLOBAL_REQUEST_LIMIT": "150",
+    "MAX_CONCURRENCY": "3",
+    "LEASE_TTL_SECONDS": "180",
+    "LEASE_HEARTBEAT_SECONDS": "60",
+    "MAX_OUTPUT_TOKENS": "16384",
+    "MAX_BODY_BYTES": "4194304",
+    "QUOTA_SCOPE": "2026-08-share"
+  }
+}

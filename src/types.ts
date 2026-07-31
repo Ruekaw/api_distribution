@@ -1,35 +1,29 @@
-import type { FastifyReply, FastifyRequest } from 'fastify';
-
-export interface AuditContext {
-  ipHashPrefix?: string;
-  globalRequestCount?: number;
-  stream?: boolean;
-  errorCategory?: string;
+export interface ProxyConfig {
+  upstreamUrl: string;
+  upstreamApiKey: string;
+  groupApiKey: string;
+  ipHmacSecret: string;
+  modelName: string;
+  perIpRpmLimit: number;
+  hourlyUniqueIpLimit: number;
+  globalRequestLimit: number;
+  maxConcurrency: number;
+  leaseTtlSeconds: number;
+  leaseHeartbeatSeconds: number;
+  maxOutputTokens: number;
+  maxBodyBytes: number;
+  disableAt: number | null;
+  quotaScope: string;
 }
 
 export interface ChatRequestBody {
   [key: string]: unknown;
 }
 
-export interface Reservation {
-  leaseId: string;
-  globalRequestCount: number;
-}
-
-export type ReservationFailureCode =
-  | 'hourly_unique_ip_limit'
-  | 'per_ip_rpm_limit'
-  | 'global_request_limit'
-  | 'max_concurrency';
-
-export interface ReservationFailure {
-  code: ReservationFailureCode;
-  retryAfterSeconds: number;
-}
-
-export interface ReservationInput {
+export interface AcquireInput {
   ipHash: string;
-  now: Date;
+  nowMs: number;
+  quotaScope: string;
   perIpRpmLimit: number;
   hourlyUniqueIpLimit: number;
   globalRequestLimit: number;
@@ -37,12 +31,49 @@ export interface ReservationInput {
   leaseTtlSeconds: number;
 }
 
-export interface QuotaStore {
-  reserve(input: ReservationInput): Promise<Reservation | ReservationFailure>;
-  releaseLease(leaseId: string): Promise<void>;
-  getGlobalRequestCount(): Promise<number>;
-  close(): Promise<void>;
+export interface AcquireSuccess {
+  ok: true;
+  leaseId: string;
+  globalRequestCount: number;
 }
 
-export type ProxyRequest = FastifyRequest & { audit: AuditContext | null };
-export type ProxyReply = FastifyReply;
+export type LimiterCode =
+  | "per_ip_rpm_limit"
+  | "hourly_unique_ip_limit"
+  | "global_request_limit"
+  | "max_concurrency";
+
+export interface AcquireFailure {
+  ok: false;
+  code: LimiterCode;
+  retryAfterSeconds?: number;
+}
+
+export type AcquireResult = AcquireSuccess | AcquireFailure;
+
+export interface LimiterStatus {
+  globalUsage: Array<{
+    scope: string;
+    requestCount: number;
+  }>;
+  activeLeaseCount: number;
+  totalLeaseCount: number;
+  hourlyAdmissionCount: number;
+  minuteUsageCount: number;
+}
+
+export interface AuditContext {
+  ipHashPrefix?: string;
+  status?: number;
+  stream?: boolean;
+  errorCategory?: string;
+  globalRequestCount?: number;
+}
+
+export interface ErrorBody {
+  error: {
+    message: string;
+    type: string;
+    code: string;
+  };
+}

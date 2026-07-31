@@ -1,0 +1,4 @@
+UPSTREAM_URL=https://your-dify-host.example/v1/chat/completions
+UPSTREAM_API_KEY=replace-with-dify-endpoint-key
+GROUP_API_KEY=replace-with-shared-client-key
+IP_HMAC_SECRET=replace-with-a-long-random-secret
