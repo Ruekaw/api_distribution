@@ -296,8 +296,12 @@ export async function handleRequest(
 
     // 9. Proxy to upstream
     const controller = new AbortController();
-    const onClientAbort = (): void => controller.abort();
+    const onClientAbort = (): void => {
+      console.log('[v0] handleRequest: request.signal aborted, triggering upstream controller abort');
+      controller.abort();
+    };
     request.signal?.addEventListener('abort', onClientAbort, { once: true });
+    console.log('[v0] handleRequest: request.signal already aborted?', request.signal?.aborted);
 
     try {
       const upstream = await fetchImpl(config.upstreamUrl, {
@@ -319,15 +323,25 @@ export async function handleRequest(
         const upstreamBody = upstream.body;
 
         // Wrap the upstream stream so we can release the lease when it completes.
+        // When the client disconnects, controller.signal fires → we cancel the upstream reader.
         let streamBody: ReadableStream<Uint8Array> | null = null;
         if (upstreamBody) {
           const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
           (async () => {
+            const abortHandler = () => {
+              console.log('[v0] SSE pipe: upstream controller aborted, cancelling upstreamBody');
+              upstreamBody.cancel('client disconnected').catch(() => undefined);
+            };
+            controller.signal.addEventListener('abort', abortHandler, { once: true });
             try {
-              await upstreamBody.pipeTo(writable);
-            } catch {
+              await upstreamBody.pipeTo(writable, { signal: controller.signal });
+              console.log('[v0] SSE pipe: pipeTo completed normally');
+            } catch (e) {
+              console.log('[v0] SSE pipe: pipeTo threw', (e as Error).message);
               // client disconnect or upstream error — writable closes automatically
+              writable.abort('client disconnected').catch(() => undefined);
             } finally {
+              controller.signal.removeEventListener('abort', abortHandler);
               await store.releaseLease(leaseId).catch(() => undefined);
             }
           })();
@@ -381,7 +395,7 @@ export async function handleRequest(
     }
   }
 
-  // ── 404 ──────────────────────────────────────────────────────────────────
+  // ─�� 404 ──────────────────────────────────────────────────────────────────
   const res = makeOpenAiError(404, 'Not found.', 'invalid_request_error', 'not_found');
   finalLog(404);
   return res;
@@ -391,10 +405,18 @@ export async function handleRequest(
 
 export function createApp(options: CreateAppOptions): AppInstance {
   const httpServer = http.createServer(async (req, res) => {
-    // Abort the request handler when the socket closes unexpectedly.
+    // signal for this request — aborted when the client disconnects before
+    // we finish writing the response.
     const controller = new AbortController();
-    req.once('close', () => controller.abort());
-    req.once('aborted', () => controller.abort());
+
+    // 'close' on ServerResponse fires whenever the underlying socket closes.
+    // We abort only when the response has NOT been fully written, which
+    // distinguishes a premature client disconnect from a normal connection
+    // teardown that follows a clean res.end().
+    const onResClose = (): void => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.on('close', onResClose);
 
     // Build a ReadableStream from IncomingMessage.
     const bodyStream = new ReadableStream<Uint8Array>({
@@ -426,17 +448,22 @@ export function createApp(options: CreateAppOptions): AppInstance {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          await new Promise<void>((resolve, reject) => {
-            res.write(value, (err) => (err ? reject(err) : resolve()));
+          if (controller.signal.aborted) break;
+          const writeOk = await new Promise<boolean>((resolve) => {
+            res.write(value, (err) => resolve(!err));
           });
+          if (!writeOk) break;
         }
       } catch {
-        // client disconnected
+        // client disconnected mid-stream or upstream error
       } finally {
         reader.releaseLock();
+        res.removeListener('close', onResClose);
       }
+    } else {
+      res.removeListener('close', onResClose);
     }
-    res.end();
+    if (!res.writableEnded) res.end();
   });
 
   return {
